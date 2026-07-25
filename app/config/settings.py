@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
     claude_mock_mode: bool = True
+    database_url: str = ""
 
 
 settings = Settings()

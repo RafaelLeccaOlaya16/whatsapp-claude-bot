@@ -1,3 +1,6 @@
 anthropic
 python-dotenv
 pydantic-settings
+
+sqlalchemy
+psycopg2-binary
