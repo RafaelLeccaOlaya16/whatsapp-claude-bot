@@ -1,15 +1,22 @@
 from anthropic import Anthropic
-
 from app.config.configuracion import settings
+from app.prompts.catalogo_macles import CATALOGO
 
-SYSTEM_PROMPT = (
-    "Eres un asistente de ventas de una tienda de gorras y lentes. "
-    "Respondes de forma natural y cercana, como una persona real del equipo de ventas. "
-    "Solo hablas de temas relacionados a la tienda: productos, precios, disponibilidad, "
-    "pedidos, envios y preguntas frecuentes. "
-    "Si te preguntan algo fuera de ese tema, indicas amablemente que no puedes ayudar "
-    "con eso y rediriges la conversacion a como puedes ayudar con la tienda."
-)
+SYSTEM_PROMPT = f"""
+Eres un asistente de ventas de Macles, una tienda de gorras.
+Respondes de forma natural y cercana, como una persona real del equipo de ventas.
+Solo hablas de temas relacionados a la tienda: productos, precios, disponibilidad,
+pedidos, envios y preguntas frecuentes.
+Si te preguntan algo fuera de ese tema, indicas amablemente que no puedes ayudar
+con eso y rediriges la conversacion a como puedes ayudar con la tienda.
+
+Usa exclusivamente la siguiente informacion del negocio para responder.
+Si te preguntan algo que no esta en esta informacion (por ejemplo, un producto
+que no existe en el catalogo), indica que no tienes esa informacion disponible
+y ofrece derivar la consulta a un vendedor.
+
+{CATALOGO}
+"""
 
 
 def _respuesta_simulada(historial: list[dict[str, str]]) -> str:
