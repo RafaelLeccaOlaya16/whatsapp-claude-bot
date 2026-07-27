@@ -1,3 +1,5 @@
+import json
+import sys
 import traceback
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
@@ -12,6 +14,11 @@ from app.services.conversacion_servicio import (
 from app.services.whatsapp_servicio import descargar_media, enviar_mensaje, imagen_a_base64
 
 router = APIRouter()
+
+
+def log_consola(mensaje: str) -> None:
+    """Imprime mensajes forzando la salida inmediata a la consola."""
+    print(mensaje, file=sys.stdout, flush=True)
 
 
 @router.get("/webhook")
@@ -39,7 +46,7 @@ def _extraer_mensaje(payload: dict) -> dict | None:
         numero = mensaje.get("from")
         tipo = mensaje.get("type")
 
-        print(f"🔍 Deteccion de mensaje -> Tipo: '{tipo}', De: {numero}", flush=True)
+        log_consola(f"🔍 Deteccion de mensaje -> Tipo: '{tipo}', De: {numero}")
 
         if tipo == "text":
             return {"numero": numero, "tipo": "text", "texto": mensaje["text"]["body"]}
@@ -52,11 +59,11 @@ def _extraer_mensaje(payload: dict) -> dict | None:
                 "texto": mensaje["image"].get("caption", "El cliente envio una imagen."),
             }
 
-        print(f"⚠️ Tipo de mensaje recibido no configurado: '{tipo}'", flush=True)
+        log_consola(f"⚠️ Tipo de mensaje recibido no configurado: '{tipo}'")
         return None
     except Exception as e:
-        print(f"❌ Error interno dentro de _extraer_mensaje: {e}", flush=True)
-        traceback.print_exc()
+        log_consola(f"❌ Error interno dentro de _extraer_mensaje: {e}")
+        traceback.print_exc(file=sys.stdout)
         return None
 
 
@@ -74,15 +81,15 @@ def _procesar_texto(numero: str, texto: str) -> None:
 
         enviar_mensaje(numero, respuesta)
     except Exception as e:
-        print(f"❌ Error en _procesar_texto: {e}", flush=True)
-        traceback.print_exc()
+        log_consola(f"❌ Error en _procesar_texto: {e}")
+        traceback.print_exc(file=sys.stdout)
 
 
 def _procesar_imagen(numero: str, media_id: str, texto_cliente: str) -> None:
     try:
-        print(f"📸 Descargando imagen desde Meta (Media ID: {media_id})...", flush=True)
+        log_consola(f"📸 Descargando imagen desde Meta (Media ID: {media_id})...")
         contenido_binario, mime_type = descargar_media(media_id)
-        print(f"✅ Descargados {len(contenido_binario)} bytes. MimeType: {mime_type}", flush=True)
+        log_consola(f"✅ Descargados {len(contenido_binario)} bytes. MimeType: {mime_type}")
 
         imagen_base64 = imagen_a_base64(contenido_binario)
 
@@ -97,28 +104,28 @@ def _procesar_imagen(numero: str, media_id: str, texto_cliente: str) -> None:
             db.close()
 
         enviar_mensaje(numero, respuesta)
-        print(f"✅ Respuesta para imagen enviada con exito a {numero}", flush=True)
+        log_consola(f"✅ Respuesta para imagen enviada con exito a {numero}")
     except Exception as e:
-        print(f"❌ Error en _procesar_imagen: {e}", flush=True)
-        traceback.print_exc()
+        log_consola(f"❌ Error en _procesar_imagen: {e}")
+        traceback.print_exc(file=sys.stdout)
 
 
 @router.post("/webhook")
 async def recibir_mensaje(request: Request, background_tasks: BackgroundTasks) -> dict:
     payload = await request.json()
-    
-    # Imprimir el JSON exacto para analizar las claves que manda Meta
-    import json
-    print("📩 JSON COMPLETO RECIBIDO DE META:", flush=True)
-    print(json.dumps(payload, indent=2), flush=True)
+
+    log_consola("==========================================")
+    log_consola("📩 JSON COMPLETO RECIBIDO DE META:")
+    log_consola(json.dumps(payload, indent=2))
+    log_consola("==========================================")
 
     datos = _extraer_mensaje(payload)
 
     if datos is None:
-        print("⚠️ El mensaje fue ignorado por _extraer_mensaje()", flush=True)
+        log_consola("⚠️ El mensaje fue ignorado por _extraer_mensaje()")
         return {"status": "ignorado"}
 
-    print(f"🚀 Procesando mensaje de tipo '{datos['tipo']}'", flush=True)
+    log_consola(f"🚀 Procesando mensaje de tipo '{datos['tipo']}'")
 
     if datos["tipo"] == "text":
         background_tasks.add_task(_procesar_texto, datos["numero"], datos["texto"])
