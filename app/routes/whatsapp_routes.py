@@ -1,5 +1,5 @@
 import json
-import sys
+import logging
 import traceback
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
@@ -13,12 +13,10 @@ from app.services.conversacion_servicio import (
 )
 from app.services.whatsapp_servicio import descargar_media, enviar_mensaje, imagen_a_base64
 
+# Configurar el logger nativo compatible con Uvicorn/FastAPI
+logger = logging.getLogger("uvicorn.error")
+
 router = APIRouter()
-
-
-def log_consola(mensaje: str) -> None:
-    """Imprime mensajes forzando la salida inmediata a la consola."""
-    print(mensaje, file=sys.stdout, flush=True)
 
 
 @router.get("/webhook")
@@ -46,7 +44,7 @@ def _extraer_mensaje(payload: dict) -> dict | None:
         numero = mensaje.get("from")
         tipo = mensaje.get("type")
 
-        log_consola(f"🔍 Deteccion de mensaje -> Tipo: '{tipo}', De: {numero}")
+        logger.info(f"🔍 Deteccion de mensaje -> Tipo: '{tipo}', De: {numero}")
 
         if tipo == "text":
             return {"numero": numero, "tipo": "text", "texto": mensaje["text"]["body"]}
@@ -59,11 +57,11 @@ def _extraer_mensaje(payload: dict) -> dict | None:
                 "texto": mensaje["image"].get("caption", "El cliente envio una imagen."),
             }
 
-        log_consola(f"⚠️ Tipo de mensaje recibido no configurado: '{tipo}'")
+        logger.warning(f"⚠️ Tipo de mensaje recibido no configurado: '{tipo}'")
         return None
     except Exception as e:
-        log_consola(f"❌ Error interno dentro de _extraer_mensaje: {e}")
-        traceback.print_exc(file=sys.stdout)
+        logger.error(f"❌ Error interno dentro de _extraer_mensaje: {e}")
+        logger.error(traceback.format_exc())
         return None
 
 
@@ -81,15 +79,15 @@ def _procesar_texto(numero: str, texto: str) -> None:
 
         enviar_mensaje(numero, respuesta)
     except Exception as e:
-        log_consola(f"❌ Error en _procesar_texto: {e}")
-        traceback.print_exc(file=sys.stdout)
+        logger.error(f"❌ Error en _procesar_texto: {e}")
+        logger.error(traceback.format_exc())
 
 
 def _procesar_imagen(numero: str, media_id: str, texto_cliente: str) -> None:
     try:
-        log_consola(f"📸 Descargando imagen desde Meta (Media ID: {media_id})...")
+        logger.info(f"📸 Descargando imagen desde Meta (Media ID: {media_id})...")
         contenido_binario, mime_type = descargar_media(media_id)
-        log_consola(f"✅ Descargados {len(contenido_binario)} bytes. MimeType: {mime_type}")
+        logger.info(f"✅ Descargados {len(contenido_binario)} bytes. MimeType: {mime_type}")
 
         imagen_base64 = imagen_a_base64(contenido_binario)
 
@@ -104,28 +102,28 @@ def _procesar_imagen(numero: str, media_id: str, texto_cliente: str) -> None:
             db.close()
 
         enviar_mensaje(numero, respuesta)
-        log_consola(f"✅ Respuesta para imagen enviada con exito a {numero}")
+        logger.info(f"✅ Respuesta para imagen enviada con exito a {numero}")
     except Exception as e:
-        log_consola(f"❌ Error en _procesar_imagen: {e}")
-        traceback.print_exc(file=sys.stdout)
+        logger.error(f"❌ Error en _procesar_imagen: {e}")
+        logger.error(traceback.format_exc())
 
 
 @router.post("/webhook")
 async def recibir_mensaje(request: Request, background_tasks: BackgroundTasks) -> dict:
     payload = await request.json()
 
-    log_consola("==========================================")
-    log_consola("📩 JSON COMPLETO RECIBIDO DE META:")
-    log_consola(json.dumps(payload, indent=2))
-    log_consola("==========================================")
+    logger.info("==========================================")
+    logger.info("📩 JSON COMPLETO RECIBIDO DE META:")
+    logger.info(json.dumps(payload, indent=2))
+    logger.info("==========================================")
 
     datos = _extraer_mensaje(payload)
 
     if datos is None:
-        log_consola("⚠️ El mensaje fue ignorado por _extraer_mensaje()")
+        logger.info("⚠️ El mensaje fue ignorado por _extraer_mensaje() (posiblemente una notificacion de estado).")
         return {"status": "ignorado"}
 
-    log_consola(f"🚀 Procesando mensaje de tipo '{datos['tipo']}'")
+    logger.info(f"🚀 Procesando mensaje de tipo '{datos['tipo']}'")
 
     if datos["tipo"] == "text":
         background_tasks.add_task(_procesar_texto, datos["numero"], datos["texto"])
@@ -133,3 +131,5 @@ async def recibir_mensaje(request: Request, background_tasks: BackgroundTasks) -
         background_tasks.add_task(_procesar_imagen, datos["numero"], datos["media_id"], datos["texto"])
 
     return {"status": "recibido"}
+
+
