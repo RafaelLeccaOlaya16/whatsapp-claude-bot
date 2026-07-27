@@ -26,21 +26,20 @@ def verificar_webhook(
 
 
 def _extraer_mensaje(payload: dict) -> dict | None:
-    """
-    Extrae los datos del mensaje entrante de Meta, sea texto o imagen.
-    """
     try:
-        entry = payload["entry"][0]
-        cambio = entry["changes"][0]
-        valor = cambio["value"]
+        entry = payload.get("entry", [])[0]
+        cambio = entry.get("changes", [])[0]
+        valor = cambio.get("value", {})
         mensajes = valor.get("messages")
 
         if not mensajes:
             return None
 
         mensaje = mensajes[0]
-        numero = mensaje["from"]
-        tipo = mensaje["type"]
+        numero = mensaje.get("from")
+        tipo = mensaje.get("type")
+
+        print(f"🔍 Deteccion de mensaje -> Tipo: '{tipo}', De: {numero}", flush=True)
 
         if tipo == "text":
             return {"numero": numero, "tipo": "text", "texto": mensaje["text"]["body"]}
@@ -53,13 +52,15 @@ def _extraer_mensaje(payload: dict) -> dict | None:
                 "texto": mensaje["image"].get("caption", "El cliente envio una imagen."),
             }
 
+        print(f"⚠️ Tipo de mensaje recibido no configurado: '{tipo}'", flush=True)
         return None
-    except (KeyError, IndexError):
+    except Exception as e:
+        print(f"❌ Error interno dentro de _extraer_mensaje: {e}", flush=True)
+        traceback.print_exc()
         return None
 
 
 def _procesar_texto(numero: str, texto: str) -> None:
-    """Tarea en segundo plano para mensajes de texto."""
     try:
         db = SessionLocal()
         try:
@@ -73,15 +74,16 @@ def _procesar_texto(numero: str, texto: str) -> None:
 
         enviar_mensaje(numero, respuesta)
     except Exception as e:
-        print(f"❌ Error al procesar mensaje de texto para {numero}: {e}")
+        print(f"❌ Error en _procesar_texto: {e}", flush=True)
         traceback.print_exc()
 
 
 def _procesar_imagen(numero: str, media_id: str, texto_cliente: str) -> None:
-    """Tarea en segundo plano para mensajes de imagen."""
     try:
-        print(f"📸 Iniciando procesamiento de imagen (Media ID: {media_id})")
+        print(f"📸 Descargando imagen desde Meta (Media ID: {media_id})...", flush=True)
         contenido_binario, mime_type = descargar_media(media_id)
+        print(f"✅ Descargados {len(contenido_binario)} bytes. MimeType: {mime_type}", flush=True)
+
         imagen_base64 = imagen_a_base64(contenido_binario)
 
         db = SessionLocal()
@@ -95,20 +97,23 @@ def _procesar_imagen(numero: str, media_id: str, texto_cliente: str) -> None:
             db.close()
 
         enviar_mensaje(numero, respuesta)
-        print(f"✅ Imagen procesada y respuesta enviada con exito a {numero}")
+        print(f"✅ Respuesta para imagen enviada con exito a {numero}", flush=True)
     except Exception as e:
-        print(f"❌ Error al procesar imagen para {numero}: {e}")
+        print(f"❌ Error en _procesar_imagen: {e}", flush=True)
         traceback.print_exc()
 
 
 @router.post("/webhook")
 async def recibir_mensaje(request: Request, background_tasks: BackgroundTasks) -> dict:
     payload = await request.json()
+    print(f"📩 PAYLOAD RAW RECIBIDO EN WEBHOOK:\n{payload}", flush=True)
+
     datos = _extraer_mensaje(payload)
-    print(f"📩 Payload extraido: {datos}")
 
     if datos is None:
         return {"status": "ignorado"}
+
+    print(f"🚀 Iniciando tarea en segundo plano para mensaje de tipo '{datos['tipo']}'", flush=True)
 
     if datos["tipo"] == "text":
         background_tasks.add_task(_procesar_texto, datos["numero"], datos["texto"])
