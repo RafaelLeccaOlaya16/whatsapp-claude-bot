@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
 from app.config.configuracion import settings
 from app.services.conversacion_servicio import procesar_mensaje_entrante
@@ -26,8 +26,7 @@ def verificar_webhook(
 def _extraer_mensaje(payload: dict) -> tuple[str, str] | None:
     """
     Intenta extraer (numero_remitente, texto) del payload que manda Meta.
-    Devuelve None si el payload no contiene un mensaje de texto valido
-    (por ejemplo, si es una notificacion de estado, no un mensaje nuevo).
+    Devuelve None si el payload no contiene un mensaje de texto valido.
     """
     try:
         entry = payload["entry"][0]
@@ -47,11 +46,21 @@ def _extraer_mensaje(payload: dict) -> tuple[str, str] | None:
         return None
 
 
-@router.post("/webhook")
-async def recibir_mensaje(request: Request) -> dict:
+def _procesar_y_responder(numero: str, texto: str) -> None:
     """
-    Meta llama a este endpoint (POST) cada vez que ocurre un evento:
-    un mensaje nuevo, una actualizacion de estado, etc.
+    Tarea en segundo plano: procesa el mensaje y envia la respuesta por WhatsApp.
+    Se ejecuta DESPUES de que Meta ya recibio el 200 OK, por lo que no bloquea
+    la respuesta al webhook ni provoca reintentos de Meta por demora.
+    """
+    respuesta = procesar_mensaje_entrante(numero, texto)
+    enviar_mensaje(numero, respuesta)
+
+
+@router.post("/webhook")
+async def recibir_mensaje(request: Request, background_tasks: BackgroundTasks) -> dict:
+    """
+    Meta llama a este endpoint (POST) cada vez que ocurre un evento.
+    Responde inmediatamente con 200 OK, y procesa el mensaje en segundo plano.
     """
     payload = await request.json()
 
@@ -62,8 +71,6 @@ async def recibir_mensaje(request: Request) -> dict:
 
     numero, texto = datos
 
-    respuesta = procesar_mensaje_entrante(numero, texto)
+    background_tasks.add_task(_procesar_y_responder, numero, texto)
 
-    enviar_mensaje(numero, respuesta)
-
-    return {"status": "procesado"}
+    return {"status": "recibido"}
