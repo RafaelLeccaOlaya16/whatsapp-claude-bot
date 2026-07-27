@@ -72,3 +72,11 @@ def procesar_mensaje_entrante(numero_whatsapp: str, texto: str) -> str:
         return respuesta
     finally:
         db.close()
+        
+def cambiar_modo_atencion(db: Session, cliente_id: int, nuevo_modo: str) -> None:
+    """Actualiza el modo de atención del cliente ("IA" o "HUMANO")."""
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if cliente:
+        cliente.modo_atencion = nuevo_modo
+        db.commit()
+        db.refresh(cliente)
