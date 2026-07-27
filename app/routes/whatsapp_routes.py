@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import json
 import logging
 import traceback
@@ -5,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
 from app.config.configuracion import settings
 from app.database.conexion import SessionLocal
+from app.models.mensaje import Mensaje
 from app.services.claude_servicio import generar_respuesta
 from app.services.conversacion_servicio import (
     cambiar_modo_atencion,
@@ -18,6 +20,9 @@ from app.services.whatsapp_servicio import descargar_media, enviar_mensaje, imag
 logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter()
+
+# Tiempo de inactividad en minutos para que el bot recupere el control automáticamente
+MINUTOS_TIMEOUT_HUMANO = 30
 
 
 @router.get("/webhook")
@@ -79,7 +84,7 @@ def _procesar_texto(numero: str, texto: str) -> None:
         try:
             cliente = obtener_o_crear_cliente(db, numero)
 
-            # --- COMANDOS DEL ASESOR HUMANO ---
+            # --- COMANDOS MANUALES (Opcionales) ---
             if texto.strip().lower() in ["/bot", "!bot"]:
                 cambiar_modo_atencion(db, cliente.id, "IA")
                 guardar_mensaje(db, cliente.id, remitente="asistente", contenido="[Control devuelto a la IA]")
@@ -91,6 +96,28 @@ def _procesar_texto(numero: str, texto: str) -> None:
                 guardar_mensaje(db, cliente.id, remitente="asistente", contenido="[Chat derivado a Humano]")
                 enviar_mensaje(numero, "👤 *Atención Humana:* Un asesor ha tomado el control de la conversación.")
                 return
+
+            # --- VERIFICACIÓN DE AUTO-REACTIVACIÓN POR INACTIVIDAD ---
+            if cliente.modo_atencion == "HUMANO":
+                ultimo_mensaje = (
+                    db.query(Mensaje)
+                    .filter(Mensaje.cliente_id == cliente.id)
+                    .order_by(Mensaje.creado_en.desc())
+                    .first()
+                )
+
+                if ultimo_mensaje:
+                    ahora = datetime.now(timezone.utc)
+                    tiempo_mensaje = ultimo_mensaje.creado_en
+                    if tiempo_mensaje.tzinfo is None:
+                        tiempo_mensaje = tiempo_mensaje.replace(tzinfo=timezone.utc)
+                    
+                    diferencia_minutos = (ahora - tiempo_mensaje).total_seconds() / 60
+
+                    if diferencia_minutos >= MINUTOS_TIMEOUT_HUMANO:
+                        cambiar_modo_atencion(db, cliente.id, "IA")
+                        cliente.modo_atencion = "IA"
+                        logger.info(f"🤖 Inactividad superada ({diferencia_minutos:.1f} mins). Bot reactivado automáticamente para {numero}.")
 
             # --- VERIFICACIÓN DE MODO ---
             if cliente.modo_atencion == "HUMANO":
@@ -151,10 +178,8 @@ def _procesar_audio(numero: str) -> None:
         db = SessionLocal()
         try:
             cliente = obtener_o_crear_cliente(db, numero)
-            # 1. Cambiamos el modo a HUMANO
             cambiar_modo_atencion(db, cliente.id, "HUMANO")
             
-            # 2. Registramos el evento en el historial
             guardar_mensaje(
                 db, 
                 cliente.id, 
@@ -164,7 +189,6 @@ def _procesar_audio(numero: str) -> None:
         finally:
             db.close()
 
-        # 3. Notificamos al cliente que un humano tomará su caso
         mensaje_notificacion = (
             "¡Hola! 👋 Hemos recibido tu nota de voz. "
             "En breve un asesor de nuestro equipo la escuchará y te responderá por este medio."
