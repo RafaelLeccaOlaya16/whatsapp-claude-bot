@@ -106,14 +106,19 @@ def _procesar_imagen(numero: str, media_id: str, texto_cliente: str) -> None:
 @router.post("/webhook")
 async def recibir_mensaje(request: Request, background_tasks: BackgroundTasks) -> dict:
     payload = await request.json()
-    print(f"📩 PAYLOAD RAW RECIBIDO EN WEBHOOK:\n{payload}", flush=True)
+    
+    # Imprimir el JSON exacto para analizar las claves que manda Meta
+    import json
+    print("📩 JSON COMPLETO RECIBIDO DE META:", flush=True)
+    print(json.dumps(payload, indent=2), flush=True)
 
     datos = _extraer_mensaje(payload)
 
     if datos is None:
+        print("⚠️ El mensaje fue ignorado por _extraer_mensaje()", flush=True)
         return {"status": "ignorado"}
 
-    print(f"🚀 Iniciando tarea en segundo plano para mensaje de tipo '{datos['tipo']}'", flush=True)
+    print(f"🚀 Procesando mensaje de tipo '{datos['tipo']}'", flush=True)
 
     if datos["tipo"] == "text":
         background_tasks.add_task(_procesar_texto, datos["numero"], datos["texto"])
@@ -121,4 +126,3 @@ async def recibir_mensaje(request: Request, background_tasks: BackgroundTasks) -
         background_tasks.add_task(_procesar_imagen, datos["numero"], datos["media_id"], datos["texto"])
 
     return {"status": "recibido"}
-
