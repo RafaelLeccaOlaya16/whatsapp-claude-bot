@@ -121,3 +121,4 @@ async def recibir_mensaje(request: Request, background_tasks: BackgroundTasks) -
         background_tasks.add_task(_procesar_imagen, datos["numero"], datos["media_id"], datos["texto"])
 
     return {"status": "recibido"}
+
